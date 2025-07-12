@@ -1,39 +1,134 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KABK IMD Editor</title>
-  <!-- CodeMirror core CSS -->
+
+  <!-- Tailwind Play CDN (development only) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- CodeMirror core CSS (v5.65.13) -->
   <link
-    rel="stylesheet"
     href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css"
+    rel="stylesheet"
   />
+
+  <!-- jsTree default theme CSS (v3.3.15) -->
+  <link
+    href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/themes/default/style.min.css"
+    rel="stylesheet"
+  />
+
   <style>
-    /* make the editor fill the viewport */
-    body, html { height: 100%; margin: 0; }
-    .CodeMirror { height: 100%; }
+    /* base reset, full-height layout */
+    html, body { height: 100%; margin: 0; }
+    /* make CodeMirror grow to fill its container */
+    .CodeMirror { flex: 1; }
   </style>
 </head>
-<body>
-  <textarea id="editor">// Write your HTML, CSS, JS here…</textarea>
+<body class="flex h-screen">
 
-  <!-- CodeMirror core JS -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
-  <!-- Mode for JavaScript (and HTML/CSS if needed) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+  <!-- Sidebar: file tree -->
+  <div
+    id="fileTree"
+    class="w-1/4 border-r overflow-y-auto bg-white"
+  ></div>
+
+  <!-- Main pane: toolbar + editor -->
+  <div class="flex-1 flex flex-col">
+    <div class="flex items-center justify-between bg-gray-100 p-2 border-b">
+      <span class="font-semibold">Editor</span>
+      <button
+        id="saveBtn"
+        class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+      >
+        💾 Save
+      </button>
+    </div>
+    <textarea
+      id="editor"
+      class="flex-1"
+    >// Select a file from the tree…</textarea>
+  </div>
+
+  <!-- Dependencies -->
+  <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/jstree.min.js"
+  ></script>
+
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"
+  ></script>
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"
+  ></script>
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"
+  ></script>
+  <script
+    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"
+  ></script>
 
   <script>
-    // Instantiate CodeMirror on the <textarea>
+    // 1) Initialize CodeMirror
     const editor = CodeMirror.fromTextArea(
       document.getElementById('editor'),
       {
         lineNumbers: true,
-        mode: 'htmlmixed',
-        theme: 'default'
+        mode: 'htmlmixed'
       }
     );
+
+    let currentFile = null;
+
+    // 2) Load folder tree via jsTree
+    $('#fileTree')
+      .jstree({
+        core: {
+          data: {
+            url: '/api/tree',
+            data: node => ({
+              path: node.id === '#' ? '' : node.id
+            })
+          }
+        },
+        types: {
+          folder: { icon: 'jstree-folder' },
+          file:   { icon: 'jstree-file' }
+        },
+        plugins: ['types']
+      })
+      // 3) On file click → load content
+      .on('select_node.jstree', (e, data) => {
+        if (data.node.original.type !== 'file') return;
+        currentFile = data.node.id;
+        fetch(`/api/file?path=${encodeURIComponent(currentFile)}`)
+          .then(r => r.text())
+          .then(txt => editor.setValue(txt))
+          .catch(err => alert('Load error: ' + err));
+      });
+
+    // 4) Save back to server
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      if (!currentFile) {
+        return alert('Please select a file first');
+      }
+      fetch('/api/file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          path: currentFile,
+          content: editor.getValue()
+        })
+      })
+      .then(r => {
+        if (!r.ok) throw new Error(r.statusText);
+        alert('✔ Saved ' + currentFile);
+      })
+      .catch(err => alert('Save error: ' + err));
+    });
   </script>
 </body>
 </html>
