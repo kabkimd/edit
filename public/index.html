@@ -2,10 +2,38 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Edit KABK IMD</title>
+  <title>KABK IMD Editor</title>
+  <!-- CodeMirror core CSS -->
+  <link
+    rel="stylesheet"
+    href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css"
+  />
+  <style>
+    /* make the editor fill the viewport */
+    body, html { height: 100%; margin: 0; }
+    .CodeMirror { height: 100%; }
+  </style>
 </head>
 <body>
-  <h1>Welcome to the KABK IMD Editor</h1>
-  <p>Your code editor interface will appear here.</p>
+  <textarea id="editor">// Write your HTML, CSS, JS here…</textarea>
+
+  <!-- CodeMirror core JS -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+  <!-- Mode for JavaScript (and HTML/CSS if needed) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
+
+  <script>
+    // Instantiate CodeMirror on the <textarea>
+    const editor = CodeMirror.fromTextArea(
+      document.getElementById('editor'),
+      {
+        lineNumbers: true,
+        mode: 'htmlmixed',
+        theme: 'default'
+      }
+    );
+  </script>
 </body>
 </html>

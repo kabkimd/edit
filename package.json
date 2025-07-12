@@ -2,15 +2,24 @@
   "name": "edit",
   "version": "1.0.0",
   "description": "",
+  "keywords": [],
+  "homepage": "https://github.com/kabkimd/edit#readme",
+  "bugs": {
+    "url": "https://github.com/kabkimd/edit/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kabkimd/edit.git"
+  },
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
+    "codemirror": "^6.0.2",
     "express": "^5.1.0"
   }
 }
