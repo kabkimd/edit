@@ -1,106 +1,176 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KABK IMD Editor</title>
 
-  <!-- Tailwind Play CDN (development only) -->
+  <!-- Tailwind (dev CDN) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- CodeMirror core CSS (v5.65.13) -->
-  <link
-    href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css"
-    rel="stylesheet"
-  />
+  <!-- CodeMirror CSS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css" rel="stylesheet" />
 
-  <!-- jsTree default theme CSS (v3.3.15) -->
-  <link
-    href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/themes/default/style.min.css"
-    rel="stylesheet"
-  />
+  <!-- jsTree CSS -->
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/themes/default/style.min.css" rel="stylesheet" />
 
   <style>
-    /* base reset, full-height layout */
-    html, body { height: 100%; margin: 0; }
-    /* make CodeMirror grow to fill its container */
-    .CodeMirror { flex: 1; }
+    html,
+    body {
+      height: 100%;
+      margin: 0;
+    }
+
+    /* make CodeMirror fill its container */
+    .CodeMirror {
+      flex: 1;
+    }
   </style>
 </head>
+
 <body class="flex h-screen">
+  <!-- Hidden file input for uploads -->
+  <input type="file" id="fileInput" class="hidden" multiple />
 
-  <!-- Sidebar: file tree -->
-  <div
-    id="fileTree"
-    class="w-1/4 border-r overflow-y-auto bg-white"
-  ></div>
+  <!-- Sidebar -->
+  <div id="fileTree" class="w-1/4 border-r overflow-y-auto bg-white"></div>
 
-  <!-- Main pane: toolbar + editor -->
+  <!-- Editor pane -->
   <div class="flex-1 flex flex-col">
+    <!-- Toolbar -->
     <div class="flex items-center justify-between bg-gray-100 p-2 border-b">
       <span class="font-semibold">Editor</span>
-      <button
-        id="saveBtn"
-        class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-      >
-        💾 Save
-      </button>
+      <div class="flex items-center space-x-2">
+        <!-- Upload Button -->
+        <button id="uploadBtn" class="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700">
+          📁 Upload
+        </button>
+        <!-- Save Button -->
+        <button id="saveBtn" class="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
+          💾 Save
+        </button>
+      </div>
     </div>
-    <textarea
-      id="editor"
-      class="flex-1"
-    >// Select a file from the tree…</textarea>
+    <!-- CodeMirror Editor -->
+    <textarea id="editor" class="flex-1">// Select a file…</textarea>
   </div>
 
   <!-- Dependencies -->
   <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/jstree.min.js"
-  ></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/jstree.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.15/jstree.contextmenu.min.js"></script>
 
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"
-  ></script>
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"
-  ></script>
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"
-  ></script>
-  <script
-    src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"
-  ></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/htmlmixed/htmlmixed.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/javascript/javascript.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/css/css.min.js"></script>
 
   <script>
-    // 1) Initialize CodeMirror
+    // init CodeMirror
     const editor = CodeMirror.fromTextArea(
       document.getElementById('editor'),
-      {
-        lineNumbers: true,
-        mode: 'htmlmixed'
-      }
+      { lineNumbers: true, mode: 'htmlmixed' }
     );
-
     let currentFile = null;
 
-    // 2) Load folder tree via jsTree
-    $('#fileTree')
-      .jstree({
-        core: {
-          data: {
-            url: '/api/tree',
-            data: node => ({
-              path: node.id === '#' ? '' : node.id
-            })
+    // init jsTree with context menu
+    $('#fileTree').jstree({
+      core: {
+        data: {
+          url: '/api/tree',
+          data: node => ({ path: node.id === '#' ? '' : node.id })
+        },
+        check_callback: true
+      },
+      types: {
+        folder: { icon: 'jstree-folder' },
+        file: { icon: 'jstree-file' }
+      },
+      plugins: ['types', 'contextmenu'],
+      contextmenu: {
+        items: function (node) {
+          const tree = $('#fileTree').jstree(true);
+          const isFolder = node.original.type === 'folder';
+
+          // Base actions for both files and folders
+          const menu = {
+            Rename: {
+              label: 'Rename',
+              action: () => {
+                const newName = prompt('New name:', node.text);
+                if (!newName) return;
+                const parentPath = node.parent === '#' ? '' : node.parent + '/';
+                fetch('/api/rename', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    oldPath: node.id,
+                    newPath: parentPath + newName
+                  })
+                })
+                  .then(r => r.ok ? tree.refresh(node.parent) : r.json().then(j => alert(j.error)))
+                  .catch(e => alert(e));
+              }
+            },
+            Delete: {
+              label: 'Delete',
+              action: () => {
+                if (!confirm(`Delete ${node.text}?`)) return;
+                fetch('/api/rm', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ path: node.id })
+                })
+                  .then(r => r.ok ? tree.refresh(node.parent) : r.json().then(j => alert(j.error)))
+                  .catch(e => alert(e));
+              }
+            }
+          };
+
+          // Additional actions for folders only
+          if (isFolder) {
+            menu.NewFile = {
+              label: 'New File',
+              action: () => {
+                const name = prompt('Filename:');
+                if (!name) return;
+                const p = node.id === '#' ? name : node.id + '/' + name;
+                fetch('/api/touch', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ path: p })
+                })
+                  .then(r => r.ok ? tree.refresh(node.id) : r.json().then(j => alert(j.error)))
+                  .catch(e => alert(e));
+              }
+            };
+            menu.NewFolder = {
+              label: 'New Folder',
+              action: () => {
+                const name = prompt('Folder name:');
+                if (!name) return;
+                const p = node.id === '#' ? name : node.id + '/' + name;
+                fetch('/api/mkdir', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ path: p })
+                })
+                  .then(r => r.ok ? tree.refresh(node.id) : r.json().then(j => alert(j.error)))
+                  .catch(e => alert(e));
+              }
+            };
           }
-        },
-        types: {
-          folder: { icon: 'jstree-folder' },
-          file:   { icon: 'jstree-file' }
-        },
-        plugins: ['types']
+
+          return menu;
+        }
+      }
+    })
+      // auto-open all folders once tree is ready
+      .on('ready.jstree', (e, data) => {
+        data.instance.open_all();
       })
-      // 3) On file click → load content
+      // 3) File selection handling
       .on('select_node.jstree', (e, data) => {
         if (data.node.original.type !== 'file') return;
         currentFile = data.node.id;
@@ -110,25 +180,48 @@
           .catch(err => alert('Load error: ' + err));
       });
 
-    // 4) Save back to server
+    // 4) Save current file
     document.getElementById('saveBtn').addEventListener('click', () => {
-      if (!currentFile) {
-        return alert('Please select a file first');
-      }
+      if (!currentFile) return alert('Select a file first');
       fetch('/api/file', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          path: currentFile,
-          content: editor.getValue()
+        body: JSON.stringify({ path: currentFile, content: editor.getValue() })
+      })
+        .then(r => { if (!r.ok) throw new Error(r.statusText); alert('✔ Saved ' + currentFile); })
+        .catch(err => alert('Save error: ' + err));
+    });
+
+    // 5) Upload logic
+    const fileInput = document.getElementById('fileInput');
+    const uploadBtn = document.getElementById('uploadBtn');
+    let currentDir = '';
+
+    $('#fileTree').on('select_node.jstree', (e, data) => {
+      currentDir = data.node.original.type === 'folder'
+        ? data.node.id
+        : (data.node.parent === '#' ? '' : data.node.parent);
+    });
+
+    uploadBtn.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const files = Array.from(fileInput.files);
+      if (!files.length) return;
+      const form = new FormData();
+      files.forEach(f => form.append('files', f));
+      const qs = currentDir ? `?path=${encodeURIComponent(currentDir)}` : '';
+      fetch(`/api/upload${qs}`, { method: 'POST', body: form })
+        .then(r => r.json())
+        .then(json => {
+          if (!json.ok) throw new Error(json.error || 'Upload failed');
+          $('#fileTree').jstree(true).refresh(currentDir || '#');
+          alert('Uploaded: ' + json.files.join(', '));
         })
-      })
-      .then(r => {
-        if (!r.ok) throw new Error(r.statusText);
-        alert('✔ Saved ' + currentFile);
-      })
-      .catch(err => alert('Save error: ' + err));
+        .catch(err => alert('Upload error: ' + err))
+        .finally(() => { fileInput.value = ''; });
     });
   </script>
+
 </body>
+
 </html>

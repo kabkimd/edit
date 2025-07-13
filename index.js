@@ -5,17 +5,55 @@ const session = require('express-session');
 const passport = require('passport');
 const LocalStrategy = require('passport-local').Strategy;
 const bcrypt = require('bcrypt');
+const multer = require('multer');
 
 const PORT = process.env.PORT || 4000;
 const CONTENT_ROOT = '/var/www/kabkimd';
 
-const app = express();
+//──────────────────────────────────────────────────────────────────────────────
+// Helper to ensure users stay within their own folder
+function resolveUserPath(user, rel) {
+  const base = path.resolve(CONTENT_ROOT, user);
+  const abs  = path.resolve(base, rel);
+  if (!abs.startsWith(base)) {
+    throw new Error('Invalid path: ' + rel);
+  }
+  return abs;
+}
 
-// Authentication setup
+//──────────────────────────────────────────────────────────────────────────────
+// Multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const relDir = req.query.path || '';
+    const absDir = resolveUserPath(req.user.username, relDir);
+    cb(null, absDir);
+  },
+  filename: (req, file, cb) => cb(null, file.originalname)
+});
+const upload = multer({ storage });
+
+//──────────────────────────────────────────────────────────────────────────────
+// Express setup
+const app = express();
+app.use(express.urlencoded({ extended: true }));
+app.use(express.json());
+
+//──────────────────────────────────────────────────────────────────────────────
+// Session + Passport authentication
+app.use(session({
+  secret: 'a-very-secret-string',
+  resave: false,
+  saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+// In-memory user store (replace with DB in production)
 const users = {
-  ladybug: { passwordHash: bcrypt.hashSync('yourPassword1', 10) },
+  ladybug:  { passwordHash: bcrypt.hashSync('yourPassword1', 10) },
   queenant: { passwordHash: bcrypt.hashSync('yourPassword2', 10) },
-  queenbee: { passwordHash: bcrypt.hashSync('yourPassword3', 10) },
+  queenbee: { passwordHash: bcrypt.hashSync('yourPassword3', 10) }
 };
 
 passport.use(new LocalStrategy((username, password, done) => {
@@ -37,25 +75,12 @@ passport.deserializeUser((username, done) => {
   return done(null, false);
 });
 
-// Middlewares
-app.use(session({
-  secret: 'a-very-secret-string',
-  resave: false,
-  saveUninitialized: false,
-}));
-app.use(passport.initialize());
-app.use(passport.session());
-app.use(express.urlencoded({ extended: true }));
-app.use(express.json());
-
-// Auth check middleware
 function ensureAuthenticated(req, res, next) {
-  if (req.isAuthenticated()) {
-    return next();
-  }
+  if (req.isAuthenticated()) return next();
   res.redirect('/login');
 }
 
+//──────────────────────────────────────────────────────────────────────────────
 // Authentication routes
 app.get('/login', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -64,91 +89,131 @@ app.get('/login', (req, res) => {
 app.post('/login',
   passport.authenticate('local', {
     successRedirect: '/',
-    failureRedirect: '/login',
+    failureRedirect: '/login'
   })
 );
 
 app.get('/logout', (req, res, next) => {
   req.logout(err => {
-    if (err) {
-      return next(err);
-    }
+    if (err) return next(err);
     res.redirect('/login');
   });
 });
 
+//──────────────────────────────────────────────────────────────────────────────
 // Serve editor UI
 app.use('/', ensureAuthenticated, express.static(path.join(__dirname, 'public')));
 app.get('/', ensureAuthenticated, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-// File API routes
+//──────────────────────────────────────────────────────────────────────────────
+// File read/write API
 app.get('/api/file', ensureAuthenticated, async (req, res) => {
+  const rel = req.query.path;
+  if (!rel) return res.status(400).send('Missing path parameter');
   try {
-    const rel = req.query.path;
-    if (!rel) {
-      return res.status(400).send('Missing path parameter');
-    }
-    const abs = path.resolve(CONTENT_ROOT, req.user.username, rel);
-    if (!abs.startsWith(path.resolve(CONTENT_ROOT))) {
-      return res.status(400).send('Invalid path');
-    }
+    const abs = resolveUserPath(req.user.username, rel);
     const content = await fs.readFile(abs, 'utf8');
     res.send(content);
   } catch (err) {
     console.error(err);
-    res.status(500).send(err.toString());
+    res.status(500).send(err.message);
   }
 });
 
 app.post('/api/file', ensureAuthenticated, async (req, res) => {
+  const { path: rel, content } = req.body;
+  if (!rel) return res.status(400).send('Missing path');
   try {
-    const { path: rel, content } = req.body;
-    if (!rel) {
-      return res.status(400).send('Missing path');
-    }
-    const abs = path.resolve(CONTENT_ROOT, req.user.username, rel);
-    if (!abs.startsWith(path.resolve(CONTENT_ROOT))) {
-      return res.status(400).send('Invalid path');
-    }
+    const abs = resolveUserPath(req.user.username, rel);
     await fs.writeFile(abs, content, 'utf8');
     res.send('OK');
   } catch (err) {
     console.error(err);
-    res.status(500).send(err.toString());
+    res.status(500).send(err.message);
   }
 });
 
-/**
- * GET /api/tree?path=relative/path
- * → returns JSON array of { id, parent, text, children, type }
- *    suitable for jsTree
- */
+//──────────────────────────────────────────────────────────────────────────────
+// Directory tree for jsTree
 app.get('/api/tree', ensureAuthenticated, async (req, res) => {
-  const rel    = req.query.path || '';  // e.g. "" or "subdir/file.txt"
-  const userDir = path.resolve(CONTENT_ROOT, req.user.username);
-  const abs    = path.resolve(userDir, rel);
-  // prevent out-of-bounds
-  if (!abs.startsWith(userDir)) 
-    return res.status(400).send('Invalid path');
-
+  const rel = req.query.path || '';
   try {
+    const abs = resolveUserPath(req.user.username, rel);
     const entries = await fs.readdir(abs, { withFileTypes: true });
-    const tree = entries.map(dirent => ({
-      id:       path.posix.join(rel, dirent.name),    // jsTree node id
-      parent:   rel === '' ? '#' : rel,               // root’s parent is '#'
-      text:     dirent.name,
-      children: dirent.isDirectory(),
-      type:     dirent.isDirectory() ? 'folder' : 'file'
+    const tree = entries.map(d => ({
+      id:       path.posix.join(rel, d.name),
+      parent:   rel === '' ? '#' : rel,
+      text:     d.name,
+      children: d.isDirectory(),
+      type:     d.isDirectory() ? 'folder' : 'file'
     }));
     res.json(tree);
   } catch (err) {
-    res.status(500).send(err.toString());
+    console.error(err);
+    res.status(500).send(err.message);
   }
 });
 
+//──────────────────────────────────────────────────────────────────────────────
+// File operations: mkdir, touch, rename, delete
+app.post('/api/mkdir', ensureAuthenticated, async (req, res) => {
+  try {
+    await fs.mkdir(resolveUserPath(req.user.username, req.body.path));
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
+app.post('/api/touch', ensureAuthenticated, async (req, res) => {
+  try {
+    const abs = resolveUserPath(req.user.username, req.body.path);
+    await fs.writeFile(abs, '', { flag: 'wx' });
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/rename', ensureAuthenticated, async (req, res) => {
+  try {
+    await fs.rename(
+      resolveUserPath(req.user.username, req.body.oldPath),
+      resolveUserPath(req.user.username, req.body.newPath)
+    );
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+app.post('/api/rm', ensureAuthenticated, async (req, res) => {
+  try {
+    const abs = resolveUserPath(req.user.username, req.body.path);
+    const stat = await fs.stat(abs);
+    if (stat.isDirectory()) await fs.rmdir(abs);
+    else await fs.unlink(abs);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+//──────────────────────────────────────────────────────────────────────────────
+// File upload
+app.post('/api/upload', ensureAuthenticated, upload.array('files'), (req, res) => {
+  res.json({ ok: true, files: req.files.map(f => f.originalname) });
+});
+
+//──────────────────────────────────────────────────────────────────────────────
+// Expose current user
+app.get('/api/user', ensureAuthenticated, (req, res) => {
+  res.json({ username: req.user.username });
+});
+
+//──────────────────────────────────────────────────────────────────────────────
 app.listen(PORT, () => {
   console.log(`edit.kabkimd.nl listening on port ${PORT}`);
 });
